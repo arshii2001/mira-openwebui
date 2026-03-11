@@ -39,8 +39,18 @@
 			description: 'Learn the logic behind computer programming with Python.',
 			image:
 				'https://images.unsplash.com/photo-1587620962725-abab7fe55159?auto=format&fit=crop&q=80&w=300&h=200',
+			color: 'bg-purple-50 dark:bg-amber-900/20',
+			textColor: 'text-purple-700 dark:text-amber-300'
+		},
+		{
+			id: 'maths-agent',
+			title: 'Maths Agent',
+			description: 'Experience precise math tutoring with our advanced agentic computation engine.',
+			image:
+				'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&q=80&w=300&h=200',
 			color: 'bg-purple-50 dark:bg-purple-900/20',
-			textColor: 'text-purple-700 dark:text-purple-300'
+			textColor: 'text-purple-700 dark:text-purple-300',
+			url: '/maths-agent'
 		}
 	];
 </script>
@@ -82,7 +92,7 @@
 				<button
 					type="button"
 					class="group relative flex flex-col overflow-hidden rounded-2xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 block text-left w-full"
-					on:click={() => goto(`/learn/${subject.id}`)}
+					on:click={() => goto(subject.url || `/learn/${subject.id}`)}
 				>
 					<div class="aspect-video w-full overflow-hidden bg-gray-200 dark:bg-gray-700 relative">
 						<img

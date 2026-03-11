@@ -22,10 +22,13 @@ export class PipecatClient {
     public listening = writable(false);
     public error = writable<string | null>(null);
 
-    // --- Classroom config ---
     // When set, the WS config message will include room_id and speaker_id
     // so the server attaches a ClassroomBroadcaster to the pipeline.
     public classroomConfig: { room_id: string; speaker_id: string } | null = null;
+
+    // --- Student context ---
+    public mode: string | null = null;
+    public userName: string | null = null;
 
     // --- Text streaming stores ---
     // These are populated by intercepting WebSocket messages from the backend.
@@ -102,6 +105,10 @@ export class PipecatClient {
                         configMsg.speaker_id = client.classroomConfig.speaker_id;
                         dbg('[Pipecat-WS] Classroom speaker config:', configMsg.room_id, configMsg.speaker_id);
                     }
+                    // Include student context
+                    if (client?.topic) configMsg.topic = client.topic;
+                    if (client?.userName) configMsg.user_name = client.userName;
+                    if (client?.mode) configMsg.mode = client.mode;
                     ws.send(JSON.stringify(configMsg));
                     dbg('[Pipecat-WS] Sent config message to server, binaryType =', ws.binaryType);
                 }
@@ -121,11 +128,11 @@ export class PipecatClient {
                     if (isPipecatDebug() && (msgCount <= 30 || msgCount % 100 === 0)) {
                         const dataType = typeof event.data === 'string' ? 'STRING'
                             : event.data instanceof ArrayBuffer ? 'ARRAYBUFFER'
-                            : event.data instanceof Blob ? 'BLOB'
-                            : 'UNKNOWN';
+                                : event.data instanceof Blob ? 'BLOB'
+                                    : 'UNKNOWN';
                         const dataSize = typeof event.data === 'string' ? event.data.length
                             : event.data instanceof ArrayBuffer ? event.data.byteLength
-                            : event.data instanceof Blob ? event.data.size : 0;
+                                : event.data instanceof Blob ? event.data.size : 0;
                         dbg(`[WS-INTERCEPT] #${msgCount} ${dataType} size=${dataSize} client=${!!client}`);
                     }
 
@@ -202,7 +209,7 @@ export class PipecatClient {
                                         handleJsonMsg(msg);
                                     } catch { /* not JSON */ }
                                 }
-                            }).catch(() => {});
+                            }).catch(() => { });
                         }
                     }
                 });

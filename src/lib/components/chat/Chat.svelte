@@ -1857,6 +1857,7 @@
 					messages: chatMessages,
 					stream: true,
 					topic: $page.url.searchParams.get('topic'),
+					mode: $page.url.searchParams.get('maths-agent') === 'true' ? 'maths-agent' : 'text',
 					user_name: $user?.name
 				}),
 				signal: controller.signal
@@ -2992,6 +2993,7 @@
 								{stopResponse}
 								modelId={selectedModelIds?.at(0) ?? null}
 								chatId={$chatId}
+								topic={$page.url.searchParams.get('topic') || null}
 								{eventTarget}
 								on:close={() => {
 									showCallOverlay.set(false);

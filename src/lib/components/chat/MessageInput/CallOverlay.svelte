@@ -15,6 +15,7 @@
 	import VideoInputMenu from './CallOverlay/VideoInputMenu.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import { PipecatClient } from '$lib/services/pipecat';
+	import { page } from '$app/stores';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 	const i18n = getContext('i18n');
@@ -25,9 +26,15 @@
 	// Enable: localStorage.setItem('PIPECAT_DEBUG', 'true')
 	// Disable: localStorage.removeItem('PIPECAT_DEBUG')
 	function isPipecatDebug(): boolean {
-		try { return localStorage.getItem('PIPECAT_DEBUG') === 'true'; } catch { return false; }
+		try {
+			return localStorage.getItem('PIPECAT_DEBUG') === 'true';
+		} catch {
+			return false;
+		}
 	}
-	const dbg = (...args: any[]) => { if (isPipecatDebug()) console.warn(...args); };
+	const dbg = (...args: any[]) => {
+		if (isPipecatDebug()) console.warn(...args);
+	};
 
 	const getTestHooks = () => {
 		try {
@@ -49,6 +56,7 @@
 	export let chatId;
 	export let modelId;
 	export let history = { messages: {}, currentId: null };
+	export let topic: string | null = null;
 
 	let wakeLock = null;
 
@@ -109,11 +117,11 @@
 	// actually *sees* and correlate with backend pipeline timing.
 	// Filter browser console with "[UX-METRICS]" to see only these logs.
 
-	let _uxOverlayOpenedAt = 0;        // When CallOverlay mounted
-	let _uxLoadingStartAt = 0;         // When "Connecting..." shown
-	let _uxListeningStartAt = 0;       // When "Listening..." shown
-	let _uxSpeakingStartAt = 0;        // When "Speaking" waveform shown
-	let _uxPrevState = 'init';         // Previous visual state
+	let _uxOverlayOpenedAt = 0; // When CallOverlay mounted
+	let _uxLoadingStartAt = 0; // When "Connecting..." shown
+	let _uxListeningStartAt = 0; // When "Listening..." shown
+	let _uxSpeakingStartAt = 0; // When "Speaking" waveform shown
+	let _uxPrevState = 'init'; // Previous visual state
 	let _uxStateTransitions: Array<{ from: string; to: string; at: number; durationMs: number }> = [];
 
 	function _uxLogStateChange(newState: string): void {
@@ -160,21 +168,27 @@
 			const pct = ((ms / totalMs) * 100).toFixed(1);
 			dbg(`[UX-METRICS]   Time in '${state}':  ${(ms / 1000).toFixed(1)}s  (${pct}%)`);
 		}
-		const firstListening = _uxStateTransitions.find(t => t.to === 'listening');
+		const firstListening = _uxStateTransitions.find((t) => t.to === 'listening');
 		if (firstListening) {
 			const firstListenMs = firstListening.at - _uxOverlayOpenedAt;
-			dbg(`[UX-METRICS]   ★ Open→Listening:    ${firstListenMs.toFixed(0)}ms  (user waits this long)`);
+			dbg(
+				`[UX-METRICS]   ★ Open→Listening:    ${firstListenMs.toFixed(0)}ms  (user waits this long)`
+			);
 		}
 		dbg(`[UX-METRICS] ═══════════════════════════`);
 	}
 
 	// Reactive: track visual state changes driven by `loading`, `pipecatThinking`, `pipecatReconnecting`, and `assistantSpeaking`
 	$: {
-		const currentVisualState = loading ? 'loading'
-			: pipecatReconnecting ? 'reconnecting'
-			: pipecatThinking ? 'thinking'
-			: assistantSpeaking ? 'speaking'
-			: 'listening';
+		const currentVisualState = loading
+			? 'loading'
+			: pipecatReconnecting
+				? 'reconnecting'
+				: pipecatThinking
+					? 'thinking'
+					: assistantSpeaking
+						? 'speaking'
+						: 'listening';
 		if (currentVisualState !== _uxPrevState && _uxOverlayOpenedAt > 0) {
 			_uxLogStateChange(currentVisualState);
 		}
@@ -765,7 +779,8 @@
 				testHooks.audioPlayCount = 0;
 			};
 			testHooks.triggerAudioPlayback = async () => {
-				const sample = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=';
+				const sample =
+					'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=';
 				await playAudio(new Audio(sample));
 			};
 		}
@@ -810,6 +825,10 @@
 		if ($config?.audio?.pipecat?.enabled) {
 			dbg('[CallOverlay] Pipecat Voice Mode Enabled');
 			pipecatClient = new PipecatClient();
+			pipecatClient.mode =
+				$page.url.searchParams.get('maths-agent') === 'true' ? 'maths-agent' : 'text';
+			pipecatClient.topic = topic;
+			pipecatClient.userName = $user?.name || null;
 
 			// Subscribe to Pipecat stores — with UX timing instrumentation
 			pipecatClient.connected.subscribe(async (val) => {
@@ -845,186 +864,191 @@
 				}
 			});
 
-		pipecatClient.error.subscribe((err) => {
-			if (err) {
-				dbg(`[UX-METRICS] PIPECAT_ERROR: ${err}`);
-				toast.error(`Pipecat Error: ${err}`);
-			}
-		});
-
-		// ── Day 2A: Subscribe to thinking state ──
-		thinkingUnsub = pipecatClient.thinking.subscribe((isThinking) => {
-			pipecatThinking = isThinking;
-			if (isThinking) {
-				dbg(`[UX-METRICS] PIPECAT_THINKING=true`);
-				_uxLogStateChange('thinking');
-			}
-		});
-
-		// ── Day 2B: Subscribe to reconnecting state ──
-		reconnectingUnsub = pipecatClient.reconnecting.subscribe((isReconnecting) => {
-			pipecatReconnecting = isReconnecting;
-			if (isReconnecting) {
-				dbg(`[UX-METRICS] PIPECAT_RECONNECTING=true`);
-				toast.loading('Reconnecting to MIRA...', { duration: 5000 });
-			}
-		});
-
-	loading = true; // Show spinner while connecting
-	dbg(`[UX-METRICS] LOADING_START  (connecting to Pipecat)`);
-
-	// Subscribe to user transcripts from Pipecat and inject into chat history
-	userTranscriptUnsub = pipecatClient.userTranscript.subscribe((data) => {
-		if (!data || !data.text) return;
-
-		dbg('[Pipecat-Chat] userTranscript:', data.text.substring(0, 60), 'final:', data.final);
-
-		// Update live overlay with user speech
-		liveUserText = data.text;
-		if (data.final && data.text.trim()) {
-			liveMessages = [...liveMessages, { role: 'user', text: data.text }];
-			liveUserText = '';
-			tick().then(() => {
-				if (transcriptContainer) {
-					transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+			pipecatClient.error.subscribe((err) => {
+				if (err) {
+					dbg(`[UX-METRICS] PIPECAT_ERROR: ${err}`);
+					toast.error(`Pipecat Error: ${err}`);
 				}
 			});
-		}
 
-		if (data.final) {
-			// Final user transcript → create user message in history
-			const msgId = uuidv4();
-				const parentId = history.currentId;
-
-				const userMessage = {
-					id: msgId,
-					parentId: parentId,
-					childrenIds: [],
-					role: 'user',
-					content: data.text,
-					timestamp: Math.floor(Date.now() / 1000),
-					models: [modelId].filter(Boolean),
-					done: true
-				};
-
-				history.messages[msgId] = userMessage;
-				if (parentId && history.messages[parentId]) {
-					history.messages[parentId].childrenIds = [
-						...(history.messages[parentId].childrenIds || []),
-						msgId
-					];
+			// ── Day 2A: Subscribe to thinking state ──
+			thinkingUnsub = pipecatClient.thinking.subscribe((isThinking) => {
+				pipecatThinking = isThinking;
+				if (isThinking) {
+					dbg(`[UX-METRICS] PIPECAT_THINKING=true`);
+					_uxLogStateChange('thinking');
 				}
-				history.currentId = msgId;
-				pipecatUserMsgId = msgId;
+			});
 
-				// Reset bot message ID for the next bot response
-				pipecatBotMsgId = null;
+			// ── Day 2B: Subscribe to reconnecting state ──
+			reconnectingUnsub = pipecatClient.reconnecting.subscribe((isReconnecting) => {
+				pipecatReconnecting = isReconnecting;
+				if (isReconnecting) {
+					dbg(`[UX-METRICS] PIPECAT_RECONNECTING=true`);
+					toast.loading('Reconnecting to MIRA...', { duration: 5000 });
+				}
+			});
+
+			loading = true; // Show spinner while connecting
+			dbg(`[UX-METRICS] LOADING_START  (connecting to Pipecat)`);
+
+			// Subscribe to user transcripts from Pipecat and inject into chat history
+			userTranscriptUnsub = pipecatClient.userTranscript.subscribe((data) => {
+				if (!data || !data.text) return;
+
+				dbg('[Pipecat-Chat] userTranscript:', data.text.substring(0, 60), 'final:', data.final);
+
+				// Update live overlay with user speech
+				liveUserText = data.text;
+				if (data.final && data.text.trim()) {
+					liveMessages = [...liveMessages, { role: 'user', text: data.text }];
+					liveUserText = '';
+					tick().then(() => {
+						if (transcriptContainer) {
+							transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+						}
+					});
+				}
+
+				if (data.final) {
+					// Final user transcript → create user message in history
+					const msgId = uuidv4();
+					const parentId = history.currentId;
+
+					const userMessage = {
+						id: msgId,
+						parentId: parentId,
+						childrenIds: [],
+						role: 'user',
+						content: data.text,
+						timestamp: Math.floor(Date.now() / 1000),
+						models: [modelId].filter(Boolean),
+						done: true
+					};
+
+					history.messages[msgId] = userMessage;
+					if (parentId && history.messages[parentId]) {
+						history.messages[parentId].childrenIds = [
+							...(history.messages[parentId].childrenIds || []),
+							msgId
+						];
+					}
+					history.currentId = msgId;
+					pipecatUserMsgId = msgId;
+
+					// Reset bot message ID for the next bot response
+					pipecatBotMsgId = null;
+
+					// Trigger Svelte reactivity — spread creates a new object reference
+					history = { ...history };
+
+					dbg('[Pipecat-Chat] Added user message to history:', data.text.substring(0, 60));
+				}
+			});
+
+			// Subscribe to bot transcripts from Pipecat and inject into chat history
+			botTranscriptUnsub = pipecatClient.botTranscript.subscribe((data) => {
+				if (!data || !data.text) return;
+
+				dbg('[Pipecat-Chat] botTranscript:', data.text.substring(0, 60), 'msgId=', pipecatBotMsgId);
+
+				// Update live overlay text and messages list
+				liveBotText = data.text;
+				// Update or add last bot message in liveMessages
+				if (liveMessages.length > 0 && liveMessages[liveMessages.length - 1].role === 'assistant') {
+					liveMessages[liveMessages.length - 1].text = data.text;
+					liveMessages = liveMessages; // trigger reactivity
+				} else {
+					liveMessages = [...liveMessages, { role: 'assistant', text: data.text }];
+				}
+				// Auto-scroll transcript
+				tick().then(() => {
+					if (transcriptContainer) {
+						transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+					}
+				});
+
+				if (!pipecatBotMsgId) {
+					// Create new assistant message
+					const msgId = uuidv4();
+					const parentId = pipecatUserMsgId || history.currentId;
+
+					dbg('[Pipecat-Chat] Creating bot msg:', msgId, 'parentId:', parentId);
+
+					const botMessage = {
+						id: msgId,
+						parentId: parentId,
+						childrenIds: [],
+						role: 'assistant',
+						content: data.text,
+						model: modelId,
+						timestamp: Math.floor(Date.now() / 1000),
+						done: false
+					};
+
+					history.messages[msgId] = botMessage;
+					if (parentId && history.messages[parentId]) {
+						history.messages[parentId].childrenIds = [
+							...(history.messages[parentId].childrenIds || []),
+							msgId
+						];
+					}
+					history.currentId = msgId;
+					pipecatBotMsgId = msgId;
+				} else {
+					// Update existing assistant message with accumulated text
+					history.messages[pipecatBotMsgId].content = data.text;
+				}
 
 				// Trigger Svelte reactivity — spread creates a new object reference
+				// (plain `history = history` self-assignment may be optimized away)
 				history = { ...history };
 
-				dbg('[Pipecat-Chat] Added user message to history:', data.text.substring(0, 60));
-			}
-		});
+				dbg(
+					'[Pipecat-Chat] history updated, currentId:',
+					history.currentId,
+					'msgCount:',
+					Object.keys(history.messages).length
+				);
+			});
 
-	// Subscribe to bot transcripts from Pipecat and inject into chat history
-	botTranscriptUnsub = pipecatClient.botTranscript.subscribe((data) => {
-		if (!data || !data.text) return;
+			// Handle barge-in: when the bot response is interrupted, finalize the
+			// current message and reset pipecatBotMsgId so the next response creates
+			// a fresh message block instead of overwriting the interrupted one.
+			botInterruptedUnsub = pipecatClient.botResponseInterrupted.subscribe((ts) => {
+				if (!ts) return;
+				dbg('[Pipecat-Chat] botResponseInterrupted, msgId=', pipecatBotMsgId);
 
-		dbg('[Pipecat-Chat] botTranscript:', data.text.substring(0, 60), 'msgId=', pipecatBotMsgId);
-
-		// Update live overlay text and messages list
-		liveBotText = data.text;
-		// Update or add last bot message in liveMessages
-		if (liveMessages.length > 0 && liveMessages[liveMessages.length - 1].role === 'assistant') {
-			liveMessages[liveMessages.length - 1].text = data.text;
-			liveMessages = liveMessages; // trigger reactivity
-		} else {
-			liveMessages = [...liveMessages, { role: 'assistant', text: data.text }];
-		}
-		// Auto-scroll transcript
-		tick().then(() => {
-			if (transcriptContainer) {
-				transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
-			}
-		});
-
-		if (!pipecatBotMsgId) {
-				// Create new assistant message
-				const msgId = uuidv4();
-				const parentId = pipecatUserMsgId || history.currentId;
-
-				dbg('[Pipecat-Chat] Creating bot msg:', msgId, 'parentId:', parentId);
-
-				const botMessage = {
-					id: msgId,
-					parentId: parentId,
-					childrenIds: [],
-					role: 'assistant',
-					content: data.text,
-					model: modelId,
-					timestamp: Math.floor(Date.now() / 1000),
-					done: false
-				};
-
-				history.messages[msgId] = botMessage;
-				if (parentId && history.messages[parentId]) {
-					history.messages[parentId].childrenIds = [
-						...(history.messages[parentId].childrenIds || []),
-						msgId
-					];
+				if (pipecatBotMsgId && history.messages[pipecatBotMsgId]) {
+					// Mark the interrupted message as done so UI doesn't show "Stop" button
+					history.messages[pipecatBotMsgId].done = true;
+					history = { ...history };
 				}
-				history.currentId = msgId;
-				pipecatBotMsgId = msgId;
-			} else {
-				// Update existing assistant message with accumulated text
-				history.messages[pipecatBotMsgId].content = data.text;
-			}
 
-			// Trigger Svelte reactivity — spread creates a new object reference
-			// (plain `history = history` self-assignment may be optimized away)
-			history = { ...history };
+				// Reset bot message ID so next bot_text creates a NEW message block
+				pipecatBotMsgId = null;
 
-			dbg('[Pipecat-Chat] history updated, currentId:', history.currentId, 'msgCount:', Object.keys(history.messages).length);
-		});
+				// Also add a visual separator in liveMessages so the user sees
+				// the interrupted response as distinct from the next one
+				if (liveMessages.length > 0 && liveMessages[liveMessages.length - 1].role === 'assistant') {
+					// Mark the last assistant message as finalized by not touching it —
+					// the next bot_text will create a new entry
+				}
+			});
 
-		// Handle barge-in: when the bot response is interrupted, finalize the
-		// current message and reset pipecatBotMsgId so the next response creates
-		// a fresh message block instead of overwriting the interrupted one.
-		botInterruptedUnsub = pipecatClient.botResponseInterrupted.subscribe((ts) => {
-			if (!ts) return;
-			dbg('[Pipecat-Chat] botResponseInterrupted, msgId=', pipecatBotMsgId);
+			// Mark bot message as done when bot stops speaking
+			pipecatClient.speaking.subscribe((isSpeaking) => {
+				if (!isSpeaking && pipecatBotMsgId && history.messages[pipecatBotMsgId]) {
+					history.messages[pipecatBotMsgId].done = true;
+					history = { ...history };
+				}
+			});
 
-			if (pipecatBotMsgId && history.messages[pipecatBotMsgId]) {
-				// Mark the interrupted message as done so UI doesn't show "Stop" button
-				history.messages[pipecatBotMsgId].done = true;
-				history = { ...history };
-			}
+			const pipecatUrl = $config?.audio?.pipecat?.url || 'http://localhost:7860';
+			const pipecatMode = $config?.audio?.pipecat?.connection_mode || 'webrtc';
 
-			// Reset bot message ID so next bot_text creates a NEW message block
-			pipecatBotMsgId = null;
-
-			// Also add a visual separator in liveMessages so the user sees
-			// the interrupted response as distinct from the next one
-			if (liveMessages.length > 0 && liveMessages[liveMessages.length - 1].role === 'assistant') {
-				// Mark the last assistant message as finalized by not touching it —
-				// the next bot_text will create a new entry
-			}
-		});
-
-		// Mark bot message as done when bot stops speaking
-		pipecatClient.speaking.subscribe((isSpeaking) => {
-			if (!isSpeaking && pipecatBotMsgId && history.messages[pipecatBotMsgId]) {
-				history.messages[pipecatBotMsgId].done = true;
-				history = { ...history };
-			}
-		});
-
-		const pipecatUrl = $config?.audio?.pipecat?.url || 'http://localhost:7860';
-		const pipecatMode = $config?.audio?.pipecat?.connection_mode || 'webrtc';
-
-		// Connect without initial config
-		await pipecatClient.connect(pipecatUrl, pipecatMode, null);
+			// Connect without initial config
+			await pipecatClient.connect(pipecatUrl, pipecatMode, null);
 		} else {
 			startRecording();
 		}
@@ -1103,27 +1127,61 @@
 	aria-label="Voice Mode Active"
 	class="w-full max-w-3xl mx-auto px-4 mb-2"
 >
-	<div class="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm">
+	<div
+		class="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm"
+	>
 		<!-- Status indicator orb -->
 		<div class="relative flex items-center justify-center shrink-0">
 			{#if loading}
-				<div class="size-10 rounded-full mira-gradient flex items-center justify-center mira-breathe">
-					<svg class="size-5 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+				<div
+					class="size-10 rounded-full mira-gradient flex items-center justify-center mira-breathe"
+				>
+					<svg
+						class="size-5 text-white"
+						fill="none"
+						viewBox="0 0 24 24"
+						stroke-width="1.5"
+						stroke="currentColor"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
+						/>
 					</svg>
 				</div>
 			{:else if pipecatReconnecting}
 				<div class="size-10 rounded-full mira-gradient flex items-center justify-center opacity-70">
-					<svg class="size-5 text-white animate-spin" style="animation-duration: 2s" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 14.652" />
+					<svg
+						class="size-5 text-white animate-spin"
+						style="animation-duration: 2s"
+						fill="none"
+						viewBox="0 0 24 24"
+						stroke-width="1.5"
+						stroke="currentColor"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 14.652"
+						/>
 					</svg>
 				</div>
 			{:else if pipecatThinking}
 				<div class="size-10 rounded-full mira-gradient flex items-center justify-center">
 					<div class="flex items-center gap-1">
-						<span class="size-1.5 bg-white rounded-full mira-thinking-dot" style="animation-delay: 0s" />
-						<span class="size-1.5 bg-white rounded-full mira-thinking-dot" style="animation-delay: 0.2s" />
-						<span class="size-1.5 bg-white rounded-full mira-thinking-dot" style="animation-delay: 0.4s" />
+						<span
+							class="size-1.5 bg-white rounded-full mira-thinking-dot"
+							style="animation-delay: 0s"
+						/>
+						<span
+							class="size-1.5 bg-white rounded-full mira-thinking-dot"
+							style="animation-delay: 0.2s"
+						/>
+						<span
+							class="size-1.5 bg-white rounded-full mira-thinking-dot"
+							style="animation-delay: 0.4s"
+						/>
 					</div>
 				</div>
 			{:else if assistantSpeaking}
@@ -1149,8 +1207,18 @@
 					style="width: {40 + rmsLevel * 30}px; height: {40 + rmsLevel * 30}px"
 				/>
 				<div class="size-10 rounded-full mira-gradient flex items-center justify-center">
-					<svg class="size-5 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+					<svg
+						class="size-5 text-white"
+						fill="none"
+						viewBox="0 0 24 24"
+						stroke-width="1.5"
+						stroke="currentColor"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
+						/>
 					</svg>
 				</div>
 			{/if}
@@ -1159,9 +1227,13 @@
 		<!-- Status text -->
 		<div class="flex-1 min-w-0">
 			{#if loading}
-				<p class="text-sm font-medium text-violet-600 dark:text-violet-400 flex items-center gap-1.5">
+				<p
+					class="text-sm font-medium text-violet-600 dark:text-violet-400 flex items-center gap-1.5"
+				>
 					<span class="relative flex h-2 w-2">
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+						<span
+							class="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"
+						></span>
 						<span class="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
 					</span>
 					{$i18n.t('Connecting...')}
@@ -1170,7 +1242,9 @@
 			{:else if pipecatReconnecting}
 				<p class="text-sm font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
 					<span class="relative flex h-2 w-2">
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+						<span
+							class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"
+						></span>
 						<span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
 					</span>
 					{$i18n.t('Reconnecting...')}
@@ -1179,18 +1253,31 @@
 				<p class="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1">
 					{$i18n.t('Mira is thinking')}
 					<span class="flex items-center gap-0.5 ml-0.5">
-						<span class="size-1 bg-violet-500 rounded-full mira-thinking-dot" style="animation-delay: 0s"></span>
-						<span class="size-1 bg-violet-500 rounded-full mira-thinking-dot" style="animation-delay: 0.2s"></span>
-						<span class="size-1 bg-violet-500 rounded-full mira-thinking-dot" style="animation-delay: 0.4s"></span>
+						<span
+							class="size-1 bg-violet-500 rounded-full mira-thinking-dot"
+							style="animation-delay: 0s"
+						></span>
+						<span
+							class="size-1 bg-violet-500 rounded-full mira-thinking-dot"
+							style="animation-delay: 0.2s"
+						></span>
+						<span
+							class="size-1 bg-violet-500 rounded-full mira-thinking-dot"
+							style="animation-delay: 0.4s"
+						></span>
 					</span>
 				</p>
 			{:else if assistantSpeaking}
-				<p class="text-sm font-medium text-gray-700 dark:text-gray-200">{$i18n.t('Mira is speaking')}</p>
+				<p class="text-sm font-medium text-gray-700 dark:text-gray-200">
+					{$i18n.t('Mira is speaking')}
+				</p>
 				<p class="text-xs text-gray-400 dark:text-gray-500">{$i18n.t('Tap orb to interrupt')}</p>
 			{:else}
 				<p class="text-sm font-medium text-green-600 dark:text-green-400 flex items-center gap-1.5">
 					<span class="relative flex h-2 w-2">
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+						<span
+							class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"
+						></span>
 						<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
 					</span>
 					{$i18n.t('Listening...')}
@@ -1209,8 +1296,16 @@
 					history.messages[pipecatBotMsgId].done = true;
 					history = { ...history };
 				}
-				try { await stopAudioStream(); } catch (e) { dbg('[CallOverlay] stopAudioStream error:', e); }
-				try { await stopVideoStream(); } catch (e) { dbg('[CallOverlay] stopVideoStream error:', e); }
+				try {
+					await stopAudioStream();
+				} catch (e) {
+					dbg('[CallOverlay] stopAudioStream error:', e);
+				}
+				try {
+					await stopVideoStream();
+				} catch (e) {
+					dbg('[CallOverlay] stopVideoStream error:', e);
+				}
 				showCallOverlay.set(false);
 				dispatch('close');
 			}}
@@ -1228,21 +1323,38 @@
 			class="mt-2 max-h-32 overflow-y-auto rounded-xl bg-white/90 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-700 px-3 py-2 space-y-1.5 mira-frosted"
 		>
 			{#each liveMessages as msg, idx}
-				<div class="flex {msg.role === 'assistant' ? '' : 'justify-end'} mira-msg-enter" style="animation-delay: {Math.min(idx * 30, 200)}ms">
+				<div
+					class="flex {msg.role === 'assistant' ? '' : 'justify-end'} mira-msg-enter"
+					style="animation-delay: {Math.min(idx * 30, 200)}ms"
+				>
 					{#if msg.role === 'assistant'}
 						<!-- Mira (bot) message — same layout as classroom -->
 						<div class="flex items-start gap-1.5 max-w-[85%]">
-							<div class="w-6 h-6 rounded-full mira-gradient flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5">M</div>
+							<div
+								class="w-6 h-6 rounded-full mira-gradient flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5"
+							>
+								M
+							</div>
 							<div>
-								<div class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 mira-gradient-text">Mira</div>
+								<div
+									class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 mira-gradient-text"
+								>
+									Mira
+								</div>
 								<p class="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{msg.text}</p>
 							</div>
 						</div>
 					{:else}
 						<!-- User message — avatar initial + text bubble -->
 						<div class="flex items-start gap-1.5 max-w-[85%]">
-							<p class="text-xs text-white bg-violet-600 rounded-2xl rounded-br-md px-2.5 py-1.5 shadow-sm leading-relaxed">{msg.text}</p>
-							<div class="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5">
+							<p
+								class="text-xs text-white bg-violet-600 rounded-2xl rounded-br-md px-2.5 py-1.5 shadow-sm leading-relaxed"
+							>
+								{msg.text}
+							</p>
+							<div
+								class="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5"
+							>
 								{($user?.name || 'U').charAt(0).toUpperCase()}
 							</div>
 						</div>
@@ -1252,10 +1364,15 @@
 			{#if liveUserText}
 				<div class="flex justify-end mira-msg-enter">
 					<div class="flex items-start gap-1.5 max-w-[85%]">
-						<p class="text-xs text-white bg-violet-600/80 rounded-2xl rounded-br-md px-2.5 py-1.5 shadow-sm leading-relaxed italic">
-							{liveUserText}<span class="inline-block w-0.5 h-3 bg-violet-300 animate-pulse ml-0.5"></span>
+						<p
+							class="text-xs text-white bg-violet-600/80 rounded-2xl rounded-br-md px-2.5 py-1.5 shadow-sm leading-relaxed italic"
+						>
+							{liveUserText}<span class="inline-block w-0.5 h-3 bg-violet-300 animate-pulse ml-0.5"
+							></span>
 						</p>
-						<div class="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5">
+						<div
+							class="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5"
+						>
 							{($user?.name || 'U').charAt(0).toUpperCase()}
 						</div>
 					</div>
@@ -1264,11 +1381,20 @@
 			{#if liveBotText && liveMessages.length > 0 && liveMessages[liveMessages.length - 1].role !== 'assistant'}
 				<div class="flex mira-msg-enter">
 					<div class="flex items-start gap-1.5 max-w-[85%]">
-						<div class="w-6 h-6 rounded-full mira-gradient flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5 mira-glow">M</div>
+						<div
+							class="w-6 h-6 rounded-full mira-gradient flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-0.5 mira-glow"
+						>
+							M
+						</div>
 						<div>
-							<div class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 mira-gradient-text">Mira</div>
+							<div
+								class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 mira-gradient-text"
+							>
+								Mira
+							</div>
 							<p class="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">
-								{liveBotText}<span class="inline-block w-0.5 h-3 bg-violet-400 animate-pulse ml-0.5"></span>
+								{liveBotText}<span class="inline-block w-0.5 h-3 bg-violet-400 animate-pulse ml-0.5"
+								></span>
 							</p>
 						</div>
 					</div>
@@ -1278,7 +1404,9 @@
 	{/if}
 
 	<!-- Powered by MIRA -->
-	<div class="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500">
+	<div
+		class="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500"
+	>
 		<span class="mira-gradient-text font-semibold">Powered by MIRA</span>
 		<span>·</span>
 		<span>Voice AI Tutor</span>

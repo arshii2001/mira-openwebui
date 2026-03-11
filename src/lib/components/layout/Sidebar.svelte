@@ -819,6 +819,44 @@
 					</Tooltip>
 				</div>
 
+				<div>
+					<Tooltip content="Maths Agent" placement="right">
+						<a
+							class=" cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition group"
+							href="/maths-agent"
+							on:click={async (e) => {
+								e.stopImmediatePropagation();
+								e.preventDefault();
+
+								goto('/maths-agent');
+								itemClickHandler();
+							}}
+							draggable="false"
+							aria-label="Maths Agent"
+						>
+							<div class=" self-center flex items-center justify-center size-9">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									class="size-4.5"
+								>
+									<path d="M12 8V4H8" />
+									<rect width="16" height="12" x="4" y="8" rx="2" />
+									<path d="M2 14h2" />
+									<path d="M20 14h2" />
+									<path d="M15 13v2" />
+									<path d="M9 13v2" />
+								</svg>
+							</div>
+						</a>
+					</Tooltip>
+				</div>
+
 				{#if ($config?.features?.enable_notes ?? false) && ($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true))}
 					<div class="">
 						<Tooltip content={$i18n.t('Notes')} placement="right">
@@ -1136,6 +1174,41 @@
 
 							<div class="flex flex-1 self-center translate-y-[0.5px]">
 								<div class=" self-center text-sm">Maths</div>
+							</div>
+						</a>
+					</div>
+
+					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+						<a
+							id="sidebar-maths-agent-button"
+							class="grow mira-sidebar-item"
+							href="/maths-agent"
+							on:click={itemClickHandler}
+							draggable="false"
+							aria-label="Maths Agent"
+						>
+							<div class="self-center">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									class="size-4.5"
+								>
+									<path d="M12 8V4H8" />
+									<rect width="16" height="12" x="4" y="8" rx="2" />
+									<path d="M2 14h2" />
+									<path d="M20 14h2" />
+									<path d="M15 13v2" />
+									<path d="M9 13v2" />
+								</svg>
+							</div>
+
+							<div class="flex flex-1 self-center translate-y-[0.5px]">
+								<div class=" self-center text-sm">Maths Agent</div>
 							</div>
 						</a>
 					</div>
