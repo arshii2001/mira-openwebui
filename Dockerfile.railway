@@ -78,7 +78,7 @@ WORKDIR /app/backend
 # Install minimal system dependencies only
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    git curl jq netcat-openbsd \
+    git curl jq netcat-openbsd ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (slim set — no torch, no whisper, no heavy ML)
