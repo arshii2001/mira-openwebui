@@ -1185,6 +1185,11 @@ app.state.config.IMAGES_EDIT_COMFYUI_WORKFLOW_NODES = IMAGES_EDIT_COMFYUI_WORKFL
 ########################################
 
 app.state.config.STT_ENGINE = AUDIO_STT_ENGINE
+# Railway/Force Override: If Deepgram API key is provided, force the engine to Deepgram
+if os.getenv("DEEPGRAM_API_KEY"):
+    app.state.config.STT_ENGINE = "deepgram"
+    app.state.config.DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+
 app.state.config.STT_MODEL = AUDIO_STT_MODEL
 app.state.config.STT_SUPPORTED_CONTENT_TYPES = AUDIO_STT_SUPPORTED_CONTENT_TYPES
 
@@ -1207,6 +1212,10 @@ app.state.config.AUDIO_STT_MISTRAL_USE_CHAT_COMPLETIONS = (
 )
 
 app.state.config.TTS_ENGINE = AUDIO_TTS_ENGINE
+# Railway/Force Override: If ElevenLabs API key is provided, force the engine to ElevenLabs
+if os.getenv("ELEVENLABS_API_KEY"):
+    app.state.config.TTS_ENGINE = "elevenlabs"
+    app.state.config.TTS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
 app.state.config.TTS_MODEL = AUDIO_TTS_MODEL
 app.state.config.TTS_VOICE = AUDIO_TTS_VOICE
